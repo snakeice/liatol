@@ -9,39 +9,28 @@ type
   TBufferedReader = class;
 
   TLineInfo = record
-    Page: Int64;
-    EndPage: Int64;
-    EndPosition: Int64;
-    Position: Int64;
     Size: Int64;
-    Bytes: TBytes;
-    Reader: TBufferedReader;
+    Line: Int64;
+    Data: string;
+    Buffer: TBufferedReader;
     function ToString: string;
     Function ReadText: string;
   end;
 
   TBufferedReader = class
   private
-    FFile: TFileStream;
+    FFile: TextFile;
 
     BufferSize: Integer;
-    RawBuffer: array of TBytes;
     LinesIndex: array of TLineInfo;
 
-    BOMLength: Integer;
-    FEncoding: TEncoding;
-
-    procedure LoadAllBuffer;
     procedure LoadAllLines;
+    procedure WriteLine(AData: string; ALine: Int64);
 
     function EnsureLineIndex(ALine: Int64): Boolean;
-    procedure EnsureBufferIndex(ABufferIndex: Int64);
-    function DefaultBufferSize: Integer;
   public
-    function Size: Int64;
     function PageSize: Integer;
     function PageCount: Int64;
-    function ReadBufferPage(APage: Int64): TBytes;
     function ReadLine(ALine: Int64): TLineInfo;
 
     constructor Create(AFileName: string; ABufferSize: Integer = -1);
@@ -50,14 +39,26 @@ type
   end;
 
   TCSVField = record
-  var
-    Value: string;
-    function AsString: string;
-    function AsFloat: Double;
-    function AsInteger: Integer;
-    function AsInt64: Int64;
-    function AsBoolean: Boolean;
-    function AsDateTime: TDateTime;
+    var raw: string;
+    function GetBoolean: Boolean;
+    function GetDateTime: TDateTime;
+    function GetFloat: Double;
+    function GetInt64: Int64;
+    function GetInteger: Integer;
+    function GetString: string;
+    procedure SetBoolean(const Value: Boolean);
+    procedure SetDateTime(const Value: TDateTime);
+    procedure SetFloat(const Value: Double);
+    procedure SetInt64(const Value: Int64);
+    procedure SetInteger(const Value: Integer);
+    procedure SetString(const Value: string);
+
+    property AsString: string read GetString write SetString;
+    property AsFloat: Double read GetFloat write SetFloat;
+    property AsInteger: Integer read GetInteger write SetInteger;
+    property AsInt64: Int64 read GetInt64 write SetInt64;
+    property AsBoolean: Boolean read GetBoolean write SetBoolean;
+    property AsDateTime: TDateTime read GetDateTime write SetDateTime;
   end;
 
   TCSVFile = class
@@ -97,19 +98,26 @@ implementation
 uses
   System.IOUtils, System.Math;
 
-Function MakeField(AValue: string): TCSVField;
+function MakeField(AValue: string): TCSVField;
 begin
-  Result.Value := AValue;
+  Result.raw := AValue;
+end;
+
+function MakeLineInfo(AData: string; ALine: Int64; AReader: TBufferedReader): TLineInfo;
+begin
+  Result.Line := ALine;
+  Result.Data := AData;
+  Result.Buffer := AReader;
+  Result.Size := Length(AData);
 end;
 
 { TCSVFile }
 
 constructor TCSVFile.Create(AFileName: string; ADelimiter: Char; ABufferSize: Integer);
 begin
-  Assert(ABufferSize >= 32, 'Buffer need >= 32');
+  Assert(ABufferSize >= 1024, 'Buffer need >= 1024 B');
   FBuffer := TBufferedReader.Create(AFileName, ABufferSize);
   FDelimiter := ADelimiter;
-
   FCurrentLine := '';
   FIndex := 1;
   FFieldIndex := TDictionary<string, Integer>.Create;
@@ -191,147 +199,37 @@ end;
 { TBufferedReader }
 
 constructor TBufferedReader.Create(AFileName: string; ABufferSize: Integer);
-var
-  LPages: Int64;
 begin
   if not FileExists(AFileName) then
     raise Exception.Create('File not exists');
-
-  BOMLength := -1;
-  BufferSize := ABufferSize;
-  FFile := TFileStream.Create(AFileName, fmShareDenyNone);
-  FFile.Position := 0;
-
-  LPages := Ceil(FFile.Size / ABufferSize);
-
-  SetLength(RawBuffer, LPages);
-
-  LoadAllBuffer;
-end;
-
-function TBufferedReader.DefaultBufferSize: Integer;
-const
-  PERCENT = 0.0003;
-var
- LKb: Int64;
- LResult: Double;
-begin
-  LKb := Round(FFile.Size / 1024);
-  LResult := LKb * PERCENT;
-
-  Result := 1024;
+  AssignFile(FFile, AFileName);
+  {$I-}
+  Append(FFile);
+  {$I+}
 end;
 
 destructor TBufferedReader.Destroy;
 begin
-  FFile.Free;
   inherited;
-end;
-
-procedure TBufferedReader.EnsureBufferIndex(ABufferIndex: Int64);
-begin
-  //
 end;
 
 function TBufferedReader.EnsureLineIndex(ALine: Int64): Boolean;
 var
-  LCurrentPage: Int64;
-  LBufferPosition: Integer;
-  LByte: Byte;
-  LLineSize: Integer;
-  LCurrentPageSize: Integer;
-
-  LLastLine, LCurrentLine: TLineInfo;
+  LData: string;
+  LLineNo: Int64;
 begin
   Result := True;
   if Length(LinesIndex) >= ALine then
     Exit;
 
-  while Length(LinesIndex) < ALine do
+  while (Length(LinesIndex) < ALine) and not Eof(Self.FFile) do
   begin
-    if Length(LinesIndex) = 0 then
-    begin
-      LLastLine.Position := 0;
-      LLastLine.Page := 0;
-      LCurrentLine.Page := 0;
-      LCurrentLine.Position := 0;
-    end
-    else
-    begin
-      LLastLine := LinesIndex[High(LinesIndex)];
-      if Length(RawBuffer) = LLastLine.EndPage then
-        Exit;
+    Readln(FFile, LData);
+    LLineNo := Length(LinesIndex) + 1;
 
-      if (LLastLine.EndPosition + 1 > Length(RawBuffer[LLastLine.EndPage]) - 1) then
-      begin
-        LCurrentLine.Page := LLastLine.EndPage + 1;
-        LCurrentLine.Position := 0;
-        if (Length(RawBuffer) - 1) < LCurrentLine.EndPage then
-          Exit(False);
-      end
-      else
-      begin
-        LCurrentLine.Page := LLastLine.EndPage;
-        LCurrentLine.Position := LLastLine.EndPosition + 1;
-      end;
-    end;
-
-    LCurrentPage := LCurrentLine.Page;
-    LBufferPosition := LCurrentLine.Position;
-    LLineSize := 0;
-    LCurrentPageSize := Length(RawBuffer[LCurrentPage]);
-    SetLength(LCurrentLine.Bytes, 0);
-    while True do
-    begin
-      EnsureBufferIndex(LCurrentPage);
-      LByte := RawBuffer[LCurrentPage][LBufferPosition];
-      if LByte = 13 then
-        Break;
-
-      if LByte <> 10 then
-      begin
-        SetLength(LCurrentLine.Bytes, Length(LCurrentLine.Bytes) + 1);
-        LCurrentLine.Bytes[High(LCurrentLine.Bytes)] := LByte;
-      end;
-
-      Inc(LLineSize);
-      Inc(LBufferPosition);
-      if LBufferPosition > LCurrentPageSize - 1 then
-      begin
-        Inc(LCurrentPage);
-        LBufferPosition := 0;
-
-        if LCurrentPage > Length(RawBuffer) - 1 then
-          Break;
-
-        LCurrentPageSize := Length(RawBuffer[LCurrentPage]);
-      end;
-    end;
-    LCurrentLine.EndPage := LCurrentPage;
-    LCurrentLine.EndPosition := LBufferPosition;
-    LCurrentLine.Size := LLineSize;
     SetLength(LinesIndex, Length(LinesIndex) + 1);
-    LCurrentLine.Reader := Self;
-    LinesIndex[High(LinesIndex)] := LCurrentLine;
+    LinesIndex[High(LinesIndex)] := MakeLineInfo(LData, LLineNo, Self);
     Result := True;
-  end;
-end;
-
-procedure TBufferedReader.LoadAllBuffer;
-var
-  LIndex: Integer;
-  LBufferSize: Integer;
-begin
-  for LIndex := 0 to Length(RawBuffer) - 1 do
-  begin
-    if (FFile.Position + BufferSize) > FFile.Size then
-      LBufferSize := FFile.Size - FFile.Position
-    else
-      LBufferSize := BufferSize;
-
-    SetLength(RawBuffer[LIndex], LBufferSize);
-
-    FFile.ReadBuffer(RawBuffer[LIndex], LBufferSize);
   end;
 end;
 
@@ -351,97 +249,34 @@ begin
   Result := BufferSize;
 end;
 
-function TBufferedReader.ReadBufferPage(APage: Int64): TBytes;
-begin
-  Result := RawBuffer[APage];
-end;
-
 function TBufferedReader.ReadLine(ALine: Int64): TLineInfo;
 begin
   EnsureLineIndex(ALine);
 
-  Result := LinesIndex[ALine - 1];
+  Result := LinesIndex[ALine];
 end;
 
-function TBufferedReader.Size: Int64;
+procedure TBufferedReader.WriteLine(AData: string; ALine: Int64);
 begin
-  Result := FFile.Size;
-end;
-
-{ TCSVField }
-
-function TCSVField.AsBoolean: Boolean;
-begin
-  Result := StrToBoolDef(Value, False);
-end;
-
-function TCSVField.AsDateTime: TDateTime;
-begin
-  Result := StrToDateTime(Value);
-end;
-
-function TCSVField.AsFloat: Double;
-begin
-  Result := StrToFloat(Value);
-end;
-
-function TCSVField.AsInt64: Int64;
-begin
-  Result := StrToInt64(Value);
-end;
-
-function TCSVField.AsInteger: Integer;
-begin
-  Result := StrToInt(Value);
-end;
-
-function TCSVField.AsString: string;
-begin
-  Result := Value;
+  Writeln(FFile, AData, ALine);
 end;
 
 { TLineInfo }
 
 function TLineInfo.ReadText: string;
-var
-  LBuffer: TBytes;
 begin
-  Result := EmptyStr;
-
-  LBuffer := Self.Bytes;
-
-  if Reader.BOMLength = -1 then
-    Reader.BOMLength := TEncoding.GetBufferEncoding(LBuffer, Reader.FEncoding);
-
-  Result := Reader.FEncoding.GetString(LBuffer, Reader.BOMLength, Length(LBuffer) - Reader.BOMLength);
+  Result := Self.Data;
 end;
 
 function TLineInfo.ToString: string;
-  function GetBytesJsonArray: string;
-  var
-    LIndex: Integer;
-    LHigh: Integer;
-  begin
-    Result := '[';
-    LHigh := High(Self.Bytes);
-    for LIndex := Low(Self.Bytes) to LHigh do
-    begin
-      Result := Result + Self.Bytes[LIndex].ToString;
-      if LIndex <> LHigh then
-        Result := Result + ', ';
-    end;
-    Result := Result + ']';
-  end;
-  
+
+
 begin
   Result :=
     '{' + sLineBreak +
-    '  "Page": ' + Self.Page.ToString + ',' + sLineBreak +
-    '  "EndPage": ' + Self.EndPage.ToString + ',' + sLineBreak +
-    '  "EndPosition": ' + Self.EndPosition.ToString + ',' + sLineBreak +
-    '  "Position": ' + Self.Position.ToString + ',' + sLineBreak +
     '  "Size": ' + Self.Size.ToString + ',' + sLineBreak +
-    '  "Bytes": ' + GetBytesJsonArray + sLineBreak +
+    '  "Line": ' + Self.Line.ToString + ',' + sLineBreak +
+    '  "Data": ' + Self.Data + sLineBreak +
     '}';
 end;
 
