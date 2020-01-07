@@ -7,8 +7,7 @@ uses
   System.Classes,
   System.SysUtils,
   System.CSV in '..\System.CSV.pas',
-  Testss in 'Testss.pas';
-
+  Tests in 'Tests.pas';
 
 begin
   ReportMemoryLeaksOnShutdown := True;

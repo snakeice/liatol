@@ -1,4 +1,4 @@
-unit Testss;
+unit Tests;
 
 interface
 
@@ -66,33 +66,30 @@ begin
 end;
 
 procedure ReadSize;
-  procedure Run(ASize: Integer);
+  procedure Run(ASize: Int64);
   var
     LCsv: TCSVFile;
     LLine: Integer;
   begin
-    Writeln(Format('Running read size with buff size: %d', [ASize]));
+    Writeln(Format(sLineBreak + 'Running read size with buff size: %d', [ASize]));
     StartTime;
     LCsv := ReadCSV('../../avaliacao1m.csv', ';', ASize);
     try
       Writeln(Format('Size %d', [LCsv.Size]));
-      EndTime;
       Randomize;
-      LLine := Random(LCsv.Size);
+//      LLine := Random(LCsv.Size);
+      LLine := LCsv.Size;
       Writeln(Format('Line %d', [LLine]));
-      Writeln(LCsv.Line[LLine].CurrentLineInfo.ToString);
-      Writeln(LCsv.Line[LLine]['AVALIACAO'].AsInteger);
+      Writeln('Line info:' + sLineBreak + LCsv.Line[LLine].CurrentLineInfo.ToString);
+      Writeln('Last line: ' + LCsv.Line[LLine].CurrentLine);
+      Writeln('Avaliação: ' + LCsv.Line[LLine]['AVALIACAO'].AsString);
+      EndTime;
     finally
       LCsv.Free;
     end;
   end;
 
 begin
-  Run(32);
-  Run(64);
-  Run(128);
-  Run(256);
-  Run(512);
   Run(1024);
   Run(2048);
   Run(4096);
@@ -107,12 +104,61 @@ begin
   Run(2097152);
   Run(4194304);
   Run(8388608);
+  Run(1024000000);
+end;
+
+procedure ReadRandom();
+var
+  LSizeCSV: Int64;
+
+  procedure Run();
+  var
+    LCsv: TCSVFile;
+    LLine: Integer;
+  begin
+    Writeln(sLineBreak);
+    Writeln(sLineBreak);
+    Writeln(sLineBreak);
+
+    StartTime;
+    LCsv := ReadCSV('../../1m.csv', ';', 1048576);
+    try
+      if LSizeCSV = -1 then
+        LSizeCSV := LCsv.Size;
+
+      Randomize;
+      LLine := Random(LSizeCSV);
+      Writeln(Format('Line %d', [LLine]));
+      Writeln('Line info:' + sLineBreak + LCsv.Line[LLine].CurrentLineInfo.ToString);
+      Writeln('Last line: ' + LCsv.Line[LLine].CurrentLine);
+      EndTime;
+    finally
+      LCsv.Free;
+    end;
+  end;
+
+
+var
+  LCounter: Integer;
+
+begin
+  LSizeCSV := -1;
+  LCounter := 5;
+  while LCounter > 0 do
+  begin
+    Run();
+    Dec(LCounter);
+  end;
+
 end;
 
 procedure RunTests();
 begin
   // ReadWriteAll;
-  ReadSize;
+//  ReadSize;
+  ReadRandom;
+
+  Readln;
 end;
 
 end.

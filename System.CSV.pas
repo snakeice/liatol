@@ -24,7 +24,7 @@ type
   private
     FFile: TFileStream;
 
-    BufferSize: Integer;
+    BufferSize: Int64;
     RawBuffer: array of TBytes;
     LinesIndex: array of TLineInfo;
 
@@ -44,7 +44,7 @@ type
     function ReadBufferPage(APage: Int64): TBytes;
     function ReadLine(ALine: Int64): TLineInfo;
 
-    constructor Create(AFileName: string; ABufferSize: Integer = -1);
+    constructor Create(AFileName: string; ABufferSize: Int64 = -1);
     destructor Destroy; override;
 
   end;
@@ -69,7 +69,7 @@ type
     FCurrentLine: string;
     FCurrentLineInfo: TLineInfo;
 
-    constructor Create(AFileName: string; ADelimiter: Char; ABufferSize: Integer);
+    constructor Create(AFileName: string; ADelimiter: Char; ABufferSize: Int64);
     procedure ReadLine(ALine: Int64);
     function GetValue(Index: String): TCSVField;
     function GetFields: TArray<String>;
@@ -90,12 +90,15 @@ type
 
 function ReadCSV(AFileName: string): TCSVFile; overload;
 function ReadCSV(AFileName: string; ADelimiter: Char): TCSVFile; overload;
-function ReadCSV(AFileName: string; ADelimiter: Char; ABufferSize: Integer): TCSVFile; overload;
+function ReadCSV(AFileName: string; ADelimiter: Char; ABufferSize: Int64): TCSVFile; overload;
 
 implementation
 
 uses
   System.IOUtils, System.Math;
+
+const
+  MIN_BUFF_SIZE = 1024;
 
 Function MakeField(AValue: string): TCSVField;
 begin
@@ -104,9 +107,9 @@ end;
 
 { TCSVFile }
 
-constructor TCSVFile.Create(AFileName: string; ADelimiter: Char; ABufferSize: Integer);
+constructor TCSVFile.Create(AFileName: string; ADelimiter: Char; ABufferSize: Int64);
 begin
-  Assert(ABufferSize >= 32, 'Buffer need >= 32');
+  Assert(ABufferSize >= MIN_BUFF_SIZE, 'Buffer need >= ' + MIN_BUFF_SIZE.ToString);
   FBuffer := TBufferedReader.Create(AFileName, ABufferSize);
   FDelimiter := ADelimiter;
 
@@ -173,7 +176,7 @@ begin
   Result := FBuffer.PageCount;
 end;
 
-function ReadCSV(AFileName: string; ADelimiter: Char; ABufferSize: Integer): TCSVFile; overload;
+function ReadCSV(AFileName: string; ADelimiter: Char; ABufferSize: Int64): TCSVFile; overload;
 begin
   Result := TCSVFile.Create(AFileName, ADelimiter, ABufferSize);
 end;
@@ -190,7 +193,7 @@ end;
 
 { TBufferedReader }
 
-constructor TBufferedReader.Create(AFileName: string; ABufferSize: Integer);
+constructor TBufferedReader.Create(AFileName: string; ABufferSize: Int64);
 var
   LPages: Int64;
 begin
