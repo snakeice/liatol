@@ -67,4 +67,6 @@ __recovery/
 # Boss dependency manager vendor folder https://github.com/HashLoad/boss
 modules/
 *.csv
+**/Win32/
+**/Win64/
 # End of https://www.gitignore.io/api/delphi
